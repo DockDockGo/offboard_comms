@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'inbound_comms = offboard_comms.inbound_comms:main'
+            'inbound_comms = offboard_comms.inbound_comms:main',
+            'mission_client = offboard_comms.mission_client:main',
         ],
     },
 )

@@ -23,17 +23,18 @@ class MinimalPublisher(Node):
         self.publisher_ = self.create_publisher(String, 'move', 10)
         self.i = 0
 
-        @app.get( '/publish', response_model = Response ) 
+        @app.get( '/fleet_commands', response_model = Response ) 
         async  def  publish ():
+            # TODO(sid/sushanth): create mission control action client here and to trigger new mission
             msg = String()
-            msg.data = 'Hello World: %d' % self.i
+            msg.data = 'Command received: %d' % self.i
             self.publisher_.publish(msg)
             self.get_logger().info('Publishing: "%s"' % msg.data)
-            self.i += 1 
 
             response  =  {  
-                'msg' :  'Message published' 
+                'msg' :  'Command received: ' + self.i
             }
+            self.i += 1 
             return  response 
 
 # Declare ros_node as None initially
