@@ -6,42 +6,47 @@ import requests
 import json
 from rclpy.executors import MultiThreadedExecutor
 
-from robot_action_interfaces.action import MissionControl, MissionControlGoal
+from robot_action_interfaces.action import MissionControl
+from std_msgs.msg import String
 
 
 # MISSION_SERVER = '192.168.0.1:5000' # TODO(sid): Confirm IP address and port
 MISSION_SERVER = 'http://192.168.1.2:5000/command'
-
+# MISSION_SERVER = 'http://0.0.0.0:5001/command'
 
 class AMRTaskClient(Node):
 
     def __init__(self):
         super().__init__('amr_task_client')
-        # self.action_client = ActionClient(self, YourAction, 'amr_action')  # Replace 'YourAction' and 'amr_action' with actual names
+        self.action_client = ActionClient(self, MissionControl, '/MissionControl')  # Replace 'YourAction' and 'amr_action' with actual names
         self.timer = self.create_timer(1.0, self.send_get_request,)  # Set the timer interval for sending GET requests
         self.current_task_name = None
 
     def send_get_request(self):
         try:
-            response = requests.get(MISSION_SERVER)  # Replace with your actual URL
+            params = {'current': '1'}
+            response = requests.get(MISSION_SERVER, params=params)  # Replace with your actual URL
             if response.status_code == 200:
                 print("status_code = 200")
                 print(response)
                 data = response.json()
-                task_name = data.get('task')
-                if (task_name == 'amr_task1' or task_name == 'amr_task2') and data.get('status') == 'START':
-                    self.current_task_name = task_name
-                    self.get_logger().info(f'Starting task name: {task_name}')
-                    self.send_post_request(task_name, 'WIP')
-                    # Send AMR from dock id 2 to dock id 1
-                    self.send_action(task_name)
-                else:
-                    self.get_logger().info('No AMR Task found')
+                if not isinstance(data, list):
+                    print(f'response.json: {data}')
+                    task_name = data.get('name')
+                    if (task_name == 'amr_task1' or task_name == 'amr_task2') and data.get('status') == 'START':
+                        self.current_task_name = task_name
+                        self.get_logger().info(f'Starting task name: {task_name}')
+                        self.send_post_request(task_name, 'WIP')
+                        # Send AMR from dock id 2 to dock id 1
+                        self.send_action(task_name)
+                    else:
+                        self.get_logger().info('No AMR Task found')
                 
             else:
                 self.get_logger().error(f'GET request failed with status code: {response.status_code}')
         except Exception as e:
             self.get_logger().error(f'An error occurred: {e}')
+        
 
     def send_post_request(self, task_name, status):
         try:
@@ -53,13 +58,12 @@ class AMRTaskClient(Node):
         # Make sure to replace 'YourAction' and 'your_goal' with your actual action and goal.
         goal_msg = MissionControl.Goal()
         if task_name == 'amr_task1':
-            goal_msg.robot_specific_dock_ids = [1,2,  # AMR1 from dock 1 to 2
-                                                2,1]  # AMR2 from dock 2 to 1
+            goal_msg.robot_specific_dock_ids = [1,2,2,1]
         else:
-            goal_msg.robot_specific_dock_ids = [2,1,  # AMR1 from dock 1 to 2
-                                                1,2]  # AMR1 from dock 2 to 1
-
+            goal_msg.robot_specific_dock_ids = [2,1,1,2]
         self.action_client.wait_for_server()
+        print(f"goal_msg: {goal_msg}")
+        print(f"goal_msg.robot_specific_dock_ids: {goal_msg.robot_specific_dock_ids}")
         self._send_goal_future = self.action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
 
         self._send_goal_future.add_done_callback(self.goal_response_callback)
@@ -78,7 +82,7 @@ class AMRTaskClient(Node):
     def get_result_callback(self, future):
         result = future.result().result
         self.get_logger().info(f'Action completed: {result}')  # Customize the message based on your action's result
-        self.send_post_request(self.current_task_name, 'FINISHED')
+        self.send_post_request(self.current_task_name, 'WATING_FOR_MANUAL_DOCKING')
 
     def feedback_callback(self, feedback_msg):
         # This is where you can process feedback from the action server if your action provides feedback
