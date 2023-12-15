@@ -12,8 +12,10 @@ from std_msgs.msg import String
 from .testbed_config import TaskStatus, AMR, WorkCell
 
 SENTINEL_DOCK_ID = 100
+CANCEL_SENTINEL_VALUE = 0
 
-TESTBED_EMULATOR_APP_SERVER_IP = 'http://192.168.1.9:8000'
+TESTBED_EMULATOR_APP_SERVER_IP = 'http://192.168.1.9:8000'  # Point the IP to the fleet infra backend server
+POLLING_PERIOD_S = 1.0  # How often should this client poll fleet infra to fetch newly enqueued missions
 
 class AMRTaskClient(Node):
 
@@ -37,11 +39,10 @@ class AMRTaskClient(Node):
         self.get_logger().info(f"{self.amr_mission_goals=}")
 
         # GET request to testbed emulator server to fetch tasks
-        amr_1_mission = self.get_enqueued_amr_missions(amr_id=AMR.RICK)
-        amr_2_mission = self.get_enqueued_amr_missions(amr_id=AMR.MORTY)
+        amr_1_mission = self.get_enqueued_amr_missions(amr_id=AMR.AMR_1)
+        amr_2_mission = self.get_enqueued_amr_missions(amr_id=AMR.AMR_2)
 
         
-
         missions_to_launch_together = []
         if amr_1_mission is not None:
             missions_to_launch_together.append(amr_1_mission)
@@ -96,13 +97,16 @@ class AMRTaskClient(Node):
                                       other_amr_goal,
                                       SENTINEL_DOCK_ID, 
                                       mission['goal']]
+            # First cancel any ongoing missions
+            self.cancel_ongoing_amr_action_servers()
             self.send_mission_control_action(action_goal_params, list(amr_execute_undocking.values()))
         elif len(missions_to_launch_together) == 2:
-            self.get_logger().info(f'Sending Rick from: {amr_1_mission["start"]} to {amr_1_mission["goal"]}, and Morty from: {amr_2_mission["start"]} to {amr_2_mission["goal"]}')
+            self.get_logger().info(f'Sending AMR_1 from: {amr_1_mission["start"]} to {amr_1_mission["goal"]}, and AMR_2 from: {amr_2_mission["start"]} to {amr_2_mission["goal"]}')
             action_goal_params = [amr_1_mission['start'],
                                   amr_1_mission['goal'],
                                   amr_2_mission['start'],
                                   amr_2_mission['goal']]
+            self.cancel_ongoing_amr_action_servers()
             self.send_mission_control_action(action_goal_params, list(amr_execute_undocking.values()))
         
 
@@ -159,6 +163,11 @@ class AMRTaskClient(Node):
 
         self._send_goal_future.add_done_callback(self.goal_response_callback)
 
+    def cancel_ongoing_amr_action_servers(self):
+        # This is the sentinel action message for cancelling
+        self.send_mission_control_action([CANCEL_SENTINEL_VALUE]*4, [CANCEL_SENTINEL_VALUE]*2)
+
+
     def goal_response_callback(self, future):
         goal_handle = future.result()
         if not goal_handle.accepted:
@@ -175,6 +184,7 @@ class AMRTaskClient(Node):
             if mission_url is not None:
                 self.get_logger().info(f'Marking mission_url: {mission_url} as COMPLETED')
                 self.update_amr_mission_status(mission_url, TaskStatus.COMPLETED)
+                # TODO[for demo]: Send POST request to Executor to signal task completion
         for amr_id in self.amr_mission_urls:
             self.amr_mission_urls[amr_id] = None
             self.amr_mission_goals[amr_id] = None
@@ -182,7 +192,7 @@ class AMRTaskClient(Node):
 
     def get_result_callback(self, future):
         result = future.result().result
-        self.get_logger().info(f'Action completed with status code: {result.status_code}')  # Customize the message based on your action's result
+        self.get_logger().info(f'Action completed with status code: {result.status_code}') 
         # Updates AMR
         if result.status_code == 200:
             self.mark_missions_as_completed()
