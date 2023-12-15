@@ -16,6 +16,7 @@ CANCEL_SENTINEL_VALUE = 0
 
 TESTBED_EMULATOR_APP_SERVER_IP = 'http://192.168.1.9:8000'  # Point the IP to the fleet infra backend server
 POLLING_PERIOD_S = 1.0  # How often should this client poll fleet infra to fetch newly enqueued missions
+AMR_TESTBED_INTEGRATION_SERVER_URL = "http://0.0.0.0:8889" # Change this to match the IP address and Port
 
 class AMRTaskClient(Node):
 
@@ -41,7 +42,6 @@ class AMRTaskClient(Node):
         # GET request to testbed emulator server to fetch tasks
         amr_1_mission = self.get_enqueued_amr_missions(amr_id=AMR.AMR_1)
         amr_2_mission = self.get_enqueued_amr_missions(amr_id=AMR.AMR_2)
-
         
         missions_to_launch_together = []
         if amr_1_mission is not None:
@@ -179,12 +179,17 @@ class AMRTaskClient(Node):
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.get_result_callback)
 
+    def signal_task_completion_to_executor(self):
+        payload = {"amr_val": amr_val}
+        requests.post(f"{AMR_TESTBED_INTEGRATION_SERVER_URL}/forward_mission_completion")
+
     def mark_missions_as_completed(self):
-        for mission_url in self.amr_mission_urls.values():
+        for amr_val, mission_url in self.amr_mission_urls.items():
             if mission_url is not None:
                 self.get_logger().info(f'Marking mission_url: {mission_url} as COMPLETED')
                 self.update_amr_mission_status(mission_url, TaskStatus.COMPLETED)
                 # TODO[for demo]: Send POST request to Executor to signal task completion
+                self.signal_task_completion_to_executor(amr_val)
         for amr_id in self.amr_mission_urls:
             self.amr_mission_urls[amr_id] = None
             self.amr_mission_goals[amr_id] = None
