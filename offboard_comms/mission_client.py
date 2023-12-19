@@ -3,6 +3,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import requests
 import json
+import time
 from datetime import datetime
 from rclpy.executors import MultiThreadedExecutor
 from enum import Enum
@@ -23,6 +24,7 @@ class AMRTaskClient(Node):
     def __init__(self):
         super().__init__('amr_task_client')
         self.action_client = ActionClient(self, MissionControl, '/MissionControl')  # Replace 'YourAction' and 'amr_action' with actual names
+        self.cancel_client = ActionClient(self, MissionControl, '/MissionControl')
         self.timer = self.create_timer(1.0, self.start_enqueued_missions)  # Set the timer interval for sending GET requests
         self.amr_mission_urls = {
             1: None,
@@ -149,7 +151,7 @@ class AMRTaskClient(Node):
         # Return the response JSON if needed
         return response.json()
 
-    def send_mission_control_action(self, action_goal_params, undock_flags):
+    def send_mission_control_action(self, action_goal_params, undock_flags, cancel=False):
         self.get_logger().info(f"action_goal_params: {action_goal_params}")
         self.get_logger().info(f"undock_flags: {undock_flags}")
         goal_msg = MissionControl.Goal()
@@ -159,13 +161,17 @@ class AMRTaskClient(Node):
         print(f"goal_msg: {goal_msg}")
         print(f"goal_msg.robot_specific_dock_ids: {goal_msg.robot_specific_dock_ids}")
         print(f"goal_msg.robot_specific_undock_flags: {goal_msg.robot_specific_undock_flags}")
-        self._send_goal_future = self.action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
 
-        self._send_goal_future.add_done_callback(self.goal_response_callback)
+        if cancel:
+            goal_future = self.cancel_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
+        else:
+            self._send_goal_future = self.action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
+            self._send_goal_future.add_done_callback(self.goal_response_callback)
 
     def cancel_ongoing_amr_action_servers(self):
         # This is the sentinel action message for cancelling
-        self.send_mission_control_action([CANCEL_SENTINEL_VALUE]*4, [CANCEL_SENTINEL_VALUE]*2)
+        self.send_mission_control_action([CANCEL_SENTINEL_VALUE]*4, [CANCEL_SENTINEL_VALUE]*2, cancel=True)
+        time.sleep(3)
 
 
     def goal_response_callback(self, future):
