@@ -15,9 +15,9 @@ from .testbed_config import TaskStatus, AMR, WorkCell
 SENTINEL_DOCK_ID = 100
 CANCEL_SENTINEL_VALUE = 0
 
-TESTBED_EMULATOR_APP_SERVER_IP = 'http://192.168.1.9:8000'  # Point the IP to the fleet infra backend server
+TESTBED_EMULATOR_APP_SERVER_IP = 'http://192.168.1.2:8000'  # Point the IP to the fleet infra backend server
 POLLING_PERIOD_S = 1.0  # How often should this client poll fleet infra to fetch newly enqueued missions
-AMR_TESTBED_INTEGRATION_SERVER_URL = "http://0.0.0.0:8889" # Change this to match the IP address and Port
+AMR_TESTBED_INTEGRATION_SERVER_URL = "http://localhost:9009" # Change this to match the IP address and Port
 
 class AMRTaskClient(Node):
 
@@ -34,12 +34,13 @@ class AMRTaskClient(Node):
             1: None,
             2: None,
         }
+        self.goal_handle = None
 
     def start_enqueued_missions(self):
-        self.get_logger().info("\n")
+        #self.get_logger().info("\n")
 
-        self.get_logger().info(f"{self.amr_mission_urls=}")
-        self.get_logger().info(f"{self.amr_mission_goals=}")
+        #self.get_logger().info(f"{self.amr_mission_urls=}")
+        #self.get_logger().info(f"{self.amr_mission_goals=}")
 
         # GET request to testbed emulator server to fetch tasks
         amr_1_mission = self.get_enqueued_amr_missions(amr_id=AMR.AMR_1)
@@ -51,14 +52,14 @@ class AMRTaskClient(Node):
         if amr_2_mission is not None:
             missions_to_launch_together.append(amr_2_mission)
         
-        self.get_logger().info(f'missions_to_launch_together: {missions_to_launch_together}')
+        #self.get_logger().info(f'missions_to_launch_together rn: {missions_to_launch_together}')
 
         # Dictionary storing whether the undocking stage should be skipped for each AMR
         amr_execute_undocking = {
             1: 1,
             2: 1,
         }
-        self.get_logger().info(f"{amr_execute_undocking=}")
+        #self.get_logger().info(f"{amr_execute_undocking=}")
         # Mark any missions being over-ridden as completed, and skip undocking stage for such AMRs
         for mission in missions_to_launch_together:
             already_running_mission_url = self.amr_mission_urls[mission['amr_id']]
@@ -162,8 +163,12 @@ class AMRTaskClient(Node):
         print(f"goal_msg.robot_specific_dock_ids: {goal_msg.robot_specific_dock_ids}")
         print(f"goal_msg.robot_specific_undock_flags: {goal_msg.robot_specific_undock_flags}")
 
+        # if cancel and self.goal_handle is not None:
         if cancel:
-            goal_future = self.cancel_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
+            # goal_future = self.cancel_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
+            # future = self.goal_handle.cancel_goal_async()
+            self.get_logger().info("cancelling previous goal")
+            self.cancel_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
         else:
             self._send_goal_future = self.action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
             self._send_goal_future.add_done_callback(self.goal_response_callback)
@@ -171,11 +176,12 @@ class AMRTaskClient(Node):
     def cancel_ongoing_amr_action_servers(self):
         # This is the sentinel action message for cancelling
         self.send_mission_control_action([CANCEL_SENTINEL_VALUE]*4, [CANCEL_SENTINEL_VALUE]*2, cancel=True)
-        time.sleep(3)
+        time.sleep(5)
 
 
     def goal_response_callback(self, future):
         goal_handle = future.result()
+        self.goal_handle = goal_handle
         if not goal_handle.accepted:
             self.get_logger().error('Goal rejected :(')
             return
@@ -185,9 +191,10 @@ class AMRTaskClient(Node):
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.get_result_callback)
 
-    def signal_task_completion_to_executor(self):
-        payload = {"amr_val": amr_val}
-        requests.post(f"{AMR_TESTBED_INTEGRATION_SERVER_URL}/forward_mission_completion")
+    def signal_task_completion_to_executor(self,amr_val):
+        payload = {"amr": amr_val}
+        header = {"content-type": "application/json"}
+        requests.post(f"{AMR_TESTBED_INTEGRATION_SERVER_URL}/forward_mission_completion",json.dumps(payload), headers=header)
 
     def mark_missions_as_completed(self):
         for amr_val, mission_url in self.amr_mission_urls.items():
